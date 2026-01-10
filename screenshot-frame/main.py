@@ -41,6 +41,7 @@ SCREENSHOT_WIDTH = int(os.environ.get('SCREENSHOT_WIDTH', '1920'))
 SCREENSHOT_HEIGHT = int(os.environ.get('SCREENSHOT_HEIGHT', '1080'))
 SCREENSHOT_ZOOM = int(os.environ.get('SCREENSHOT_ZOOM', '100'))  # percentage: 100 = 100%, 150 = 150%, etc.
 SCREENSHOT_WAIT = float(os.environ.get('SCREENSHOT_WAIT', '2.0'))  # seconds to wait after DOM load for dynamic content
+SCREENSHOT_SKIP_NAVIGATION = os.environ.get('SCREENSHOT_SKIP_NAVIGATION', 'false').lower() in ('1','true','yes')  # Skip page reload, just take new screenshot
 
 # Local TV options (from add-on options.json exported by run.sh)
 TV_IP = os.environ.get('TV_IP') or ''
@@ -70,6 +71,7 @@ logger.info(f'  Auth Type: {TARGET_AUTH_TYPE}')
 logger.info(f'  Interval: {INTERVAL}s')
 logger.info(f'  Screenshot: {SCREENSHOT_WIDTH}x{SCREENSHOT_HEIGHT} @ {SCREENSHOT_ZOOM}% zoom')
 logger.info(f'  Screenshot Wait: {SCREENSHOT_WAIT}s (after DOM load)')
+logger.info(f'  Screenshot Skip Navigation: {SCREENSHOT_SKIP_NAVIGATION}')
 logger.info(f'  Art Path: {ART_PATH}')
 logger.info(f'  TV Upload: {"ENABLED" if TV_IP else "DISABLED"}')
 if TV_IP:
@@ -243,29 +245,36 @@ async def _ensure_browser(width: int, height: int):
     return _browser, _page
 
 
-async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeout: int = 30000, width: int = 1920, height: int = 1080, zoom: int = 100):
+async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeout: int = 30000, width: int = 1920, height: int = 1080, zoom: int = 100, skip_navigation: bool = False):
     """Render the given URL to a PNG using pyppeteer and return bytes.
 
     Args:
         zoom: Zoom percentage (100 = 100%, 150 = 150%, 50 = 50%)
+        skip_navigation: If True, skip page reload and just take a new screenshot (for auto-refreshing pages like DakBoard)
 
     Uses persistent browser instance for faster subsequent renders.
     """
     async with _page_lock:
         browser, page = await _ensure_browser(width, height)
         
-        # Set extra headers if provided
-        if headers:
+        # Set extra headers if provided (only on first load or when navigation isn't skipped)
+        if headers and not skip_navigation:
             await page.setExtraHTTPHeaders(headers)
         
         # Navigate to URL - use 'domcontentloaded' instead of 'networkidle2' for faster rendering
         # This waits for DOM to be ready but doesn't wait for all network activity to stop
-        logger.info('[BROWSER] Navigating to URL...')
-        await page.goto(url, {'waitUntil': 'domcontentloaded', 'timeout': timeout})
-        
-        # Wait for dynamic content to load (configurable via SCREENSHOT_WAIT)
-        if SCREENSHOT_WAIT > 0:
-            await asyncio.sleep(SCREENSHOT_WAIT)
+        if not skip_navigation:
+            logger.info('[BROWSER] Navigating to URL...')
+            await page.goto(url, {'waitUntil': 'domcontentloaded', 'timeout': timeout})
+            
+            # Wait for dynamic content to load (configurable via SCREENSHOT_WAIT)
+            if SCREENSHOT_WAIT > 0:
+                await asyncio.sleep(SCREENSHOT_WAIT)
+        else:
+            logger.info('[BROWSER] Skipping navigation (page auto-refreshes), taking new screenshot...')
+            # Still wait a moment for any auto-refresh content to settle
+            if SCREENSHOT_WAIT > 0:
+                await asyncio.sleep(SCREENSHOT_WAIT)
         
         # Apply zoom by scaling the page
         if zoom != 100:
@@ -323,7 +332,9 @@ async def screenshot_loop():
                                 # If the target returns HTML, render it with pyppeteer
                                 if ctype.startswith('text/html') or (len(content) > 0 and content.lstrip().startswith(b'<')):
                                     logger.info('Target returned HTML; attempting pyppeteer render')
-                                    rendered = await render_url_with_pyppeteer(TARGET_URL, headers=headers, width=SCREENSHOT_WIDTH, height=SCREENSHOT_HEIGHT, zoom=SCREENSHOT_ZOOM)
+                                    # Skip navigation after first load if configured (for auto-refreshing pages)
+                                    skip_nav = SCREENSHOT_SKIP_NAVIGATION and loop_count > 1
+                                    rendered = await render_url_with_pyppeteer(TARGET_URL, headers=headers, width=SCREENSHOT_WIDTH, height=SCREENSHOT_HEIGHT, zoom=SCREENSHOT_ZOOM, skip_navigation=skip_nav)
                                     if rendered:
                                         with open(str(ART_PATH), 'wb') as f:
                                             f.write(rendered)
