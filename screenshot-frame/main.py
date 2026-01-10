@@ -107,40 +107,37 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
 
             file_type = os.path.splitext(image_path)[1][1:].upper() or 'JPEG'
             logger.info(f'[TV UPLOAD] Uploading image (type={file_type}, matte={matte}, show={show})')
-            content_id = None
-
-            # Always attempt to replace last art if we have a cached ID
+            
+            # Get cached ID for cleanup after upload
             last_id = None
             if os.path.exists(TV_LAST_ART_FILE):
                 try:
                     with open(TV_LAST_ART_FILE, 'r') as lf:
                         last_id = lf.read().strip() or None
-                    logger.info(f'[TV UPLOAD] Found cached art ID: {last_id}')
+                    if last_id:
+                        logger.info(f'[TV UPLOAD] Found cached art ID: {last_id}')
                 except Exception:
-                    last_id = None
+                    pass
 
-            if last_id:
-                logger.info(f'[TV UPLOAD] Attempting to replace existing art ID: {last_id}')
+            # Upload new art
+            logger.info('[TV UPLOAD] Uploading new art entry')
+            content_id = None
+            try:
+                if matte:
+                    content_id = tv.upload(data, file_type=file_type.lower(), matte=matte)
+                else:
+                    content_id = tv.upload(data, file_type=file_type.lower())
+            except TypeError:
+                content_id = tv.upload(data, file_type=file_type.lower())
+            
+            # Delete old art after successful upload to avoid clutter
+            if last_id and content_id and last_id != content_id:
                 try:
-                    kwargs = {'content_id': last_id, 'file_type': file_type}
-                    if matte:
-                        kwargs['matte'] = matte
-                    content_id = tv.upload(data, **kwargs)
-                    if not content_id:
-                        raise RuntimeError('Replace returned no content id')
-                    logger.info(f'[TV UPLOAD] ✓ In-place replace succeeded; using id: {content_id}')
+                    logger.info(f'[TV UPLOAD] Deleting previous art entry: {last_id}')
+                    tv.delete(last_id)
+                    logger.info('[TV UPLOAD] ✓ Previous art deleted')
                 except Exception as e:
-                    logger.info(f'[TV UPLOAD] ERROR: In-place replace failed: {e}')
-                    logger.info('[TV UPLOAD] Not falling back to new upload')
-                    tv.close()
-                    return None
-            else:
-                # Seed initial art id on first upload
-                logger.info('[TV UPLOAD] No cached ID found, creating new art entry')
-                try:
-                    content_id = tv.upload(data, file_type=file_type, matte=matte) if matte else tv.upload(data, file_type=file_type)
-                except TypeError:
-                    content_id = tv.upload(data, file_type=file_type)
+                    logger.info(f'[TV UPLOAD] Warning: Failed to delete previous art: {e}')
 
             logger.info(f'[TV UPLOAD] Upload returned id: {content_id}')
             if content_id is not None:
