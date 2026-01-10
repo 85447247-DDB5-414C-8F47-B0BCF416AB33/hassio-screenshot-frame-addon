@@ -1,0 +1,77 @@
+{
+  "name": "Screenshot to Samsung Frame",
+  "version": "0.1.0",
+  "slug": "screenshot_frame",
+  "description": "Periodically screenshots a Home Assistant dashboard and serves it for a Samsung Frame TV (SmartThings integration required).",
+  "startup": "application",
+  "boot": "auto",
+  "options": {
+    "image_provider_url": "http://homeassistant.local:5000/",
+    "image_provider_auth_type": "none",
+    "image_provider_token": "",
+    "image_provider_token_header": "Authorization",
+    "image_provider_token_prefix": "Bearer",
+    "image_provider_username": "",
+    "image_provider_password": "",
+    "image_provider_headers": "",
+
+    "interval_seconds": 300,
+    "http_port": 8200,
+
+    "use_local_tv": true,
+    "tv_ip": "",
+    "tv_port": 8002,
+    "tv_matte": "",
+    "tv_show_after_upload": true,
+    "tv_replace_last": false,
+    "tv_last_art_file": "/data/last-art-id.txt",
+
+    "screensaver_enabled": false,
+    "screensaver_dir": "./screensaver",
+    "screensaver_interval": 60
+  },
+  "schema": {
+    "image_provider_url": "str",
+    "image_provider_auth_type": ["none", "bearer", "basic", "headers"],
+    "image_provider_token": "str",
+    "image_provider_token_header": "str",
+    "image_provider_token_prefix": "str",
+    "image_provider_username": "str",
+    "image_provider_password": "str",
+    "image_provider_headers": "str",
+
+    "interval_seconds": "int",
+    "http_port": "int",
+
+    "use_local_tv": "bool",
+    "tv_ip": "str",
+    "tv_port": "int",
+    "tv_matte": "str",
+    "tv_show_after_upload": "bool",
+    "tv_replace_last": "bool",
+    "tv_last_art_file": "str",
+
+    "screensaver_enabled": "bool",
+    "screensaver_dir": "str",
+    "screensaver_interval": "int"
+  },
+  "arch": [
+    "amd64",
+    "armv7",
+    "armhf",
+    "aarch64"
+  ],
+  "map": [
+    "config:rw",
+    "ssl:rw",
+    "share:rw",
+    "addons:rw",
+    "backup:rw",
+    "media:rw"
+  ],
+  "ports": {
+    "8200/tcp": 8200
+  },
+  "webui": "http://[HOST]:[PORT:8200]",
+  "host_network": true
+}
