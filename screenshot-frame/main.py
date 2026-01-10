@@ -1,11 +1,21 @@
 import os
 import asyncio
 import json
+import logging
+from datetime import datetime
 from aiohttp import web, ClientSession, BasicAuth
 from pathlib import Path
 
 # pyppeteer for browser automation (Python port of Puppeteer)
 import pyppeteer
+
+# Configure logging with timestamps
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 _preferred_path = Path('/data/art.jpg')
 # If /data is writable (typical add-on runtime), use it; otherwise fall back to
@@ -47,31 +57,52 @@ TARGET_HEADERS = os.environ.get('TARGET_HEADERS')  # optional JSON map of header
 # Always replace last art file (hard-coded path for persistence)
 TV_LAST_ART_FILE = '/data/last-art-id.txt'
 
+logger.info('='*60)
+logger.info('Screenshot to Samsung Frame Addon - Starting')
+logger.info('='*60)
+logger.info(f'Configuration:')
+logger.info(f'  Target URL: {TARGET_URL if TARGET_URL else "NOT SET"}')
+logger.info(f'  Auth Type: {TARGET_AUTH_TYPE}')
+logger.info(f'  Interval: {INTERVAL}s')
+logger.info(f'  HTTP Port: {HTTP_PORT}')
+logger.info(f'  Screenshot: {SCREENSHOT_WIDTH}x{SCREENSHOT_HEIGHT} @ {SCREENSHOT_ZOOM}% zoom')
+logger.info(f'  Art Path: {ART_PATH}')
+logger.info(f'  TV Upload: {"ENABLED" if TV_IP else "DISABLED"}')
+if TV_IP:
+    logger.info(f'  TV IP: {TV_IP}:{TV_PORT}')
+    logger.info(f'  TV Matte: {TV_MATTE if TV_MATTE else "none"}')
+    logger.info(f'  TV Show After Upload: {TV_SHOW_AFTER_UPLOAD}')
+logger.info('='*60)
+
 async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte: str = None, show: bool = True):
+    logger.info(f'[TV UPLOAD] Starting upload to {host}:{port}')
     try:
         from samsungtvws.async_art import SamsungTVAsyncArt
     except Exception as e:
-        print('samsungtvws.async_art library not available:', e)
+        logger.info(f'[TV UPLOAD] ERROR: samsungtvws.async_art library not available: {e}')
         return None
 
     token_file = '/data/tv-token.txt'
     tv = None
     try:
+        logger.info(f'[TV UPLOAD] Connecting to TV (token file: {token_file})')
         tv = SamsungTVAsyncArt(host=host, port=port, token_file=token_file)
         await tv.start_listening()
 
         supported = await tv.supported()
         if not supported:
-            print('TV does not support art mode via this API')
+            logger.info('[TV UPLOAD] ERROR: TV does not support art mode via this API')
             await tv.close()
             return None
 
         # read image bytes
+        logger.info(f'[TV UPLOAD] Reading image from {image_path}')
         with open(image_path, 'rb') as f:
             data = f.read()
+        logger.info(f'[TV UPLOAD] Image size: {len(data)} bytes')
 
         file_type = os.path.splitext(image_path)[1][1:].upper() or 'JPEG'
-        print(f'Uploading image to TV {host}:{port} (type={file_type})')
+        logger.info(f'[TV UPLOAD] Uploading image (type={file_type}, matte={matte}, show={show})')
         content_id = None
 
         # Always attempt to replace last art if we have a cached ID
@@ -80,11 +111,12 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
             try:
                 with open(TV_LAST_ART_FILE, 'r') as lf:
                     last_id = lf.read().strip() or None
+                logger.info(f'[TV UPLOAD] Found cached art ID: {last_id}')
             except Exception:
                 last_id = None
 
         if last_id:
-            print('Replacing art id', last_id)
+            logger.info(f'[TV UPLOAD] Attempting to replace existing art ID: {last_id}')
             try:
                 kwargs = {'content_id': last_id, 'file_type': file_type}
                 if matte:
@@ -92,47 +124,53 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
                 content_id = await tv.upload(data, **kwargs)
                 if not content_id:
                     raise RuntimeError('Replace returned no content id')
-                print('In-place replace succeeded; using id', content_id)
+                logger.info(f'[TV UPLOAD] ✓ In-place replace succeeded; using id: {content_id}')
             except Exception as e:
-                print('In-place replace failed; not falling back to new upload:', e)
+                logger.info(f'[TV UPLOAD] ERROR: In-place replace failed: {e}')
+                logger.info('[TV UPLOAD] Not falling back to new upload')
                 await tv.close()
                 return None
         else:
             # Seed initial art id on first upload
+            logger.info('[TV UPLOAD] No cached ID found, creating new art entry')
             try:
                 content_id = await tv.upload(data, file_type=file_type, matte=matte) if matte else await tv.upload(data, file_type=file_type)
             except TypeError:
                 content_id = await tv.upload(data, file_type=file_type)
 
-        print('Upload returned id:', content_id)
+        logger.info(f'[TV UPLOAD] Upload returned id: {content_id}')
         if content_id is not None:
+            logger.info(f'[TV UPLOAD] Attempting to select image on TV (show={show})')
             try:
                 # Try to select with show parameter (controls whether image is displayed)
                 await tv.select_image(content_id, show=show)
-                print(f'Selected uploaded image on TV (show={show})')
+                logger.info(f'[TV UPLOAD] ✓ Selected uploaded image on TV (show={show})')
             except TypeError:
                 # If show parameter not supported, try without it
                 try:
                     await tv.select_image(content_id)
-                    print('Selected uploaded image on TV (without show parameter)')
+                    logger.info('[TV UPLOAD] ✓ Selected uploaded image on TV (without show parameter)')
                 except Exception as e:
-                    print('Failed to select uploaded image:', e)
+                    logger.info(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
             except Exception as e:
-                print('Failed to select uploaded image:', e)
+                logger.info(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
 
         await tv.close()
+        logger.info('[TV UPLOAD] TV connection closed')
 
         # Persist last art id for future replace attempts
         try:
             if content_id:
                 with open(TV_LAST_ART_FILE, 'w') as lf:
                     lf.write(str(content_id))
-        except Exception:
+                logger.info(f'[TV UPLOAD] ✓ Cached art ID {content_id} to {TV_LAST_ART_FILE}')
+        except Exception as e:
+            logger.info(f'[TV UPLOAD] Warning: Failed to cache art ID: {e}')
             pass
 
         return content_id
     except Exception as e:
-        print('Error interacting with TV (async):', e)
+        logger.info(f'[TV UPLOAD] ERROR: Exception during TV interaction: {e}')
         try:
             if tv:
                 await tv.close()
@@ -193,13 +231,17 @@ async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeo
 
 
 async def screenshot_loop(app):
+    logger.info('[LOOP] Screenshot loop started')
     if not TARGET_URL:
-        print('No TARGET_URL configured; the add-on will only upload if this is set.')
+        logger.info('[LOOP] WARNING: No TARGET_URL configured; the add-on will not fetch screenshots')
 
+    loop_count = 0
     while True:
+        loop_count += 1
+        logger.info(f'\n[LOOP] ===== Cycle #{loop_count} started =====')
         try:
             if not TARGET_URL:
-                print('Skipping fetch; TARGET_URL not set')
+                logger.info('[LOOP] Skipping fetch; TARGET_URL not set')
             else:
                 try:
                     # Build headers/auth dynamically so the target URL can be
@@ -213,7 +255,7 @@ async def screenshot_loop(app):
                             if isinstance(parsed, dict):
                                 headers.update(parsed)
                         except Exception:
-                            print('Failed to parse TARGET_HEADERS; expecting JSON map')
+                            logger.info('Failed to parse TARGET_HEADERS; expecting JSON map')
 
                     if TARGET_AUTH_TYPE == 'bearer' and TARGET_TOKEN:
                         headers[TARGET_TOKEN_HEADER] = f"{TARGET_TOKEN_PREFIX} {TARGET_TOKEN}"
@@ -221,45 +263,52 @@ async def screenshot_loop(app):
                         auth = BasicAuth(TARGET_USERNAME, TARGET_PASSWORD)
 
                     async with ClientSession() as session:
-                        print(f'Fetching from target URL: {TARGET_URL} (auth={TARGET_AUTH_TYPE})')
+                        logger.info(f'Fetching from target URL: {TARGET_URL} (auth={TARGET_AUTH_TYPE})')
                         async with session.get(TARGET_URL, timeout=30, headers=headers or None, auth=auth) as resp:
                             if resp.status == 200:
                                 ctype = (resp.headers.get('content-type') or '').lower()
                                 content = await resp.read()
                                 # If the target returns HTML, render it with pyppeteer
                                 if ctype.startswith('text/html') or (len(content) > 0 and content.lstrip().startswith(b'<')):
-                                    print('Target returned HTML; attempting pyppeteer render')
+                                    logger.info('Target returned HTML; attempting pyppeteer render')
                                     rendered = await render_url_with_pyppeteer(TARGET_URL, headers=headers, width=SCREENSHOT_WIDTH, height=SCREENSHOT_HEIGHT, zoom=SCREENSHOT_ZOOM)
                                     if rendered:
                                         with open(str(ART_PATH), 'wb') as f:
                                             f.write(rendered)
-                                        print('Saved pyppeteer-rendered image to', ART_PATH)
+                                        logger.info('Saved pyppeteer-rendered image to', ART_PATH)
                                     else:
                                         # Fallback: save the raw response (likely HTML) for debugging
                                         with open(str(ART_PATH), 'wb') as f:
                                             f.write(content)
-                                        print('pyppeteer not available or failed; saved raw target response to', ART_PATH)
+                                        logger.info('pyppeteer not available or failed; saved raw target response to', ART_PATH)
                                 else:
                                     with open(str(ART_PATH), 'wb') as f:
                                         f.write(content)
-                                    print('Saved image from target to', ART_PATH)
+                                    logger.info('Saved image from target to', ART_PATH)
                             else:
-                                print('Target URL returned status', resp.status)
+                                logger.info('Target URL returned status', resp.status)
                 except Exception as e:
-                    print('Error fetching from target URL:', e)
+                    logger.info('Error fetching from target URL:', e)
         except Exception as e:
-            print('Fetch loop error:', e)
+            logger.info('Fetch loop error:', e)
 
         if TV_IP:
+            logger.info(f'[LOOP] TV upload enabled, uploading to {TV_IP}:{TV_PORT}')
             try:
                 content_id = await upload_image_to_tv_async(TV_IP, TV_PORT, str(ART_PATH), TV_MATTE, TV_SHOW_AFTER_UPLOAD)
                 if not content_id:
-                    print('Async upload returned no id; upload may have failed or TV returned no id')
+                    logger.info('[LOOP] WARNING: Async upload returned no id; upload may have failed')
+                else:
+                    logger.info(f'[LOOP] ✓ Upload complete with id: {content_id}')
             except Exception as e:
-                print('Local TV upload error:', e)
+                logger.info(f'[LOOP] ERROR: Local TV upload error: {e}')
+                import traceback
+                traceback.print_exc()
         else:
-            print('Local TV not configured; skipping upload (set use_local_tv and tv_ip).')
+            logger.info('[LOOP] TV upload disabled (use_local_tv=false or tv_ip not set)')
 
+        logger.info(f'[LOOP] Cycle #{loop_count} complete. Sleeping for {INTERVAL}s...')
+        logger.info(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
         await asyncio.sleep(INTERVAL)
 
 
@@ -276,31 +325,41 @@ async def init_app():
 
 
 async def async_main():
+    logger.info('[STARTUP] Initializing HTTP server...')
     app = await init_app()
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
     await site.start()
-    print(f'HTTP server running on 0.0.0.0:{HTTP_PORT} serving /art.jpg')
+    logger.info(f'[STARTUP] ✓ HTTP server running on 0.0.0.0:{HTTP_PORT}')
+    logger.info(f'[STARTUP] Access art at: http://<host>:{HTTP_PORT}/art.jpg')
+    logger.info('[STARTUP] Starting screenshot loop...')
 
     loop = asyncio.get_running_loop()
     screenshot_task = loop.create_task(screenshot_loop(app))
     try:
         await asyncio.Event().wait()  # run indefinitely until cancelled/interrupt
     finally:
+        logger.info('[SHUTDOWN] Shutting down gracefully...')
         screenshot_task.cancel()
         try:
             await screenshot_task
         except asyncio.CancelledError:
             pass
         await runner.cleanup()
+        logger.info('[SHUTDOWN] Cleanup complete')
 
 
 def main():
+    logger.info('[MAIN] Starting addon...')
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
-        pass
+        logger.info('[MAIN] Received keyboard interrupt')
+    except Exception as e:
+        logger.info(f'[MAIN] ERROR: Unexpected error: {e}')
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == '__main__':
