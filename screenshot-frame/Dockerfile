@@ -7,11 +7,13 @@ FROM ${BUILD_FROM}
 ENV LANG=C.UTF-8
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies (Python is already included in base image)
-# chromium added for Playwright; build tools for compiling from source
+
+# Install system dependencies
+# Ensure Python and pip present even if base image is non-python
 RUN apk add --no-cache \
+    python3 \
+    py3-pip \
     chromium \
-    chromium-chromedriver \
     build-base \
     openssl-dev \
     libffi-dev \
@@ -27,18 +29,18 @@ RUN apk add --no-cache \
     ca-certificates
 
 # Ensure python and pip is up to date
-RUN python -m pip install --upgrade pip setuptools wheel
+RUN python3 -m pip install --upgrade pip setuptools wheel
 
 # Install websockets and samsung-tv-ws-api from default indexes
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     'websockets==10.4' \
     git+https://github.com/xchwarze/samsung-tv-ws-api.git
 
-# Configure pip to only use PyPI for pyppeteer (HA wheels index doesn't have it)
+# Configure pip to use PyPI (and HA wheels for musllinux where available)
 RUN mkdir -p ~/.pip && echo '[global]\nindex-url = https://pypi.org/simple/\nextra-index-url = https://wheels.home-assistant.io/musllinux-index/' > ~/.pip/pip.conf
 
 # Install pyppeteer for browser automation (Python port of Puppeteer)
-RUN pip install --no-cache-dir pyppeteer
+RUN python3 -m pip install --no-cache-dir pyppeteer
 
 # Create app and data directories
 RUN mkdir -p /app /data

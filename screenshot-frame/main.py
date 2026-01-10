@@ -14,6 +14,7 @@ if _preferred_path.parent.exists() or os.access(str(_preferred_path.parent), os.
     ART_PATH = _preferred_path
 else:
     ART_PATH = Path('./data/art.jpg')
+    
 
 # Ensure the chosen data directory exists
 try:
@@ -48,14 +49,6 @@ IMAGE_PROVIDER_HEADERS = os.environ.get('IMAGE_PROVIDER_HEADERS')  # optional JS
 # last art id to `TV_LAST_ART_FILE` and try common replace/update APIs.
 TV_REPLACE_LAST = os.environ.get('TV_REPLACE_LAST', 'true').lower() in ('1', 'true', 'yes')
 TV_LAST_ART_FILE = os.environ.get('TV_LAST_ART_FILE', '/data/last-art-id.txt')
-
-
-# The add-on now fetches images from an external image provider URL set by
-# `IMAGE_PROVIDER_URL`. Playwright-based dashboard rendering has been removed
-# to simplify the add-on: configure an image provider that exposes a JPEG/PNG
-# at a reachable URL (for example the lovelace renderer at port 5000).
-
-
 
 async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte: str = None, show: bool = True):
     try:
@@ -161,10 +154,24 @@ async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeo
     cannot render. pyppeteer is required for this add-on's primary purpose.
     """
     # Try launching with default args first; fall back to no-sandbox
+    # Prefer system Chromium if available to avoid downloads
+    executable_candidates = ['/usr/bin/chromium-browser', '/usr/bin/chromium']
+    executable_path = None
+    for cand in executable_candidates:
+        if os.path.exists(cand):
+            executable_path = cand
+            break
     try:
-        browser = await pyppeteer.launch(headless=True)
+        if executable_path:
+            browser = await pyppeteer.launch(headless=True, executablePath=executable_path)
+        else:
+            browser = await pyppeteer.launch(headless=True)
     except Exception:
-        browser = await pyppeteer.launch(headless=True, args=['--no-sandbox'])
+        args = ['--no-sandbox']
+        if executable_path:
+            browser = await pyppeteer.launch(headless=True, executablePath=executable_path, args=args)
+        else:
+            browser = await pyppeteer.launch(headless=True, args=args)
     
     page = await browser.newPage()
     # Set viewport for the desired width/height
