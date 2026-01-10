@@ -4,8 +4,8 @@ import json
 from aiohttp import web, ClientSession, BasicAuth
 from pathlib import Path
 
-# Playwright is required: import at module level so failures surface early.
-from playwright.async_api import async_playwright
+# pyppeteer for browser automation (Python port of Puppeteer)
+import pyppeteer
 
 _preferred_path = Path('/data/art.jpg')
 # If /data is writable (typical add-on runtime), use it; otherwise fall back to
@@ -241,39 +241,41 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
         return None
 
 
-async def render_url_with_playwright(url: str, headers: dict | None = None, timeout: int = 30000, width: int = 1920, height: int = 1080, zoom: int = 100):
-    """Render the given URL to a PNG using Playwright and return bytes.
+async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeout: int = 30000, width: int = 1920, height: int = 1080, zoom: int = 100):
+    """Render the given URL to a PNG using pyppeteer and return bytes.
 
     Args:
         zoom: Zoom percentage (100 = 100%, 150 = 150%, 50 = 50%)
 
-    Raises an exception on failure so the add-on fails fast if Playwright
-    cannot render. Playwright is required for this add-on's primary purpose.
+    Raises an exception on failure so the add-on fails fast if pyppeteer
+    cannot render. pyppeteer is required for this add-on's primary purpose.
     """
-    async with async_playwright() as p:
-        # Try launching with default args first; fall back to a no-sandbox
-        # option if the browser fails to start in some environments.
-        try:
-            browser = await p.chromium.launch(headless=True)
-        except Exception:
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox"]) 
-        # deviceScaleFactor controls zoom: 1.0 = 100%, 1.5 = 150%, etc.
-        device_scale_factor = zoom / 100.0
-        context = await browser.new_context(
-            viewport={'width': width, 'height': height},
-            device_scale_factor=device_scale_factor
-        )
-        if headers:
-            await context.set_extra_http_headers({str(k): str(v) for k, v in (headers.items() if isinstance(headers, dict) else [])})
-        page = await context.new_page()
-        await page.goto(url, wait_until='networkidle', timeout=timeout)
-        try:
-            await page.wait_for_load_state('networkidle', timeout=2000)
-        except Exception:
-            pass
-        data = await page.screenshot(full_page=True, type='png')
-        await browser.close()
-        return data
+    # Try launching with default args first; fall back to no-sandbox
+    try:
+        browser = await pyppeteer.launch(headless=True)
+    except Exception:
+        browser = await pyppeteer.launch(headless=True, args=['--no-sandbox'])
+    
+    page = await browser.newPage()
+    # Set viewport for the desired width/height
+    await page.setViewport({'width': width, 'height': height})
+    
+    # Set user agent and extra headers if provided
+    if headers:
+        await page.setExtraHTTPHeaders(headers)
+    
+    # Navigate to URL with timeout
+    await page.goto(url, {'waitUntil': 'networkidle2', 'timeout': timeout})
+    
+    # Apply zoom by scaling the page
+    if zoom != 100:
+        await page.evaluate(f'() => {{ document.body.style.zoom = "{zoom}%" }}')
+    
+    # Take screenshot
+    screenshot = await page.screenshot({'fullPage': False})
+    await page.close()
+    await browser.close()
+    return screenshot
 
 
 async def screenshot_loop(app):
@@ -310,14 +312,14 @@ async def screenshot_loop(app):
                             if resp.status == 200:
                                 ctype = (resp.headers.get('content-type') or '').lower()
                                 content = await resp.read()
-                                # If the provider returns HTML, render it with Playwright
+                                # If the provider returns HTML, render it with pyppeteer
                                 if ctype.startswith('text/html') or (len(content) > 0 and content.lstrip().startswith(b'<')):
-                                    print('Provider returned HTML; attempting Playwright render')
-                                    rendered = await render_url_with_playwright(IMAGE_PROVIDER_URL, headers=headers, width=SCREENSHOT_WIDTH, height=SCREENSHOT_HEIGHT, zoom=SCREENSHOT_ZOOM)
+                                    print('Provider returned HTML; attempting pyppeteer render')
+                                    rendered = await render_url_with_pyppeteer(IMAGE_PROVIDER_URL, headers=headers, width=SCREENSHOT_WIDTH, height=SCREENSHOT_HEIGHT, zoom=SCREENSHOT_ZOOM)
                                     if rendered:
                                         with open(str(ART_PATH), 'wb') as f:
                                             f.write(rendered)
-                                        print('Saved Playwright-rendered image to', ART_PATH)
+                                        print('Saved pyppeteer-rendered image to', ART_PATH)
                                     else:
                                         # Fallback: save the raw response (likely HTML) for debugging
                                         with open(str(ART_PATH), 'wb') as f:

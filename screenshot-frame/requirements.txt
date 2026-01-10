@@ -4,4 +4,4 @@ requests==2.31.0
 git+https://github.com/xchwarze/samsung-tv-ws-api.git
 Pillow==10.0.0
 websockets==10.4
-playwright==1.40.0
+pyppeteer

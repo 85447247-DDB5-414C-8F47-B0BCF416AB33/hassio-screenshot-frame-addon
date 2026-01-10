@@ -1,20 +1,17 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration#add-on-dockerfile
-ARG BUILD_FROM
+# Use HA's Python base image (Alpine-based) optimized for add-ons
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.14-alpine3.23
 FROM ${BUILD_FROM}
 
 # Set environment
 ENV LANG=C.UTF-8
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies for websockets, aiohttp, and Playwright rendering
-# Using apk for Alpine Linux compatibility
+# Install system dependencies (Python is already included in base image)
+# chromium added for Playwright; build tools for compiling from source
 RUN apk add --no-cache \
-    python3 \
-    python3-dev \
-    py3-pip \
-    py3-aiohttp \
-    py3-requests \
-    py3-pillow \
+    chromium \
+    chromium-chromedriver \
     build-base \
     openssl-dev \
     libffi-dev \
@@ -22,8 +19,6 @@ RUN apk add --no-cache \
     zlib-dev \
     curl \
     git \
-    chromium \
-    chromium-chromedriver \
     libx11-dev \
     libxcb-dev \
     libxkbcommon-dev \
@@ -31,23 +26,19 @@ RUN apk add --no-cache \
     mesa-dev \
     ca-certificates
 
-# Ensure python and pip are available
-RUN ln -sf /usr/bin/python3 /usr/bin/python
+# Ensure python and pip is up to date
+RUN python -m pip install --upgrade pip setuptools wheel
 
-# Install websockets via pip with break-system-packages
-RUN python -m pip install --no-cache-dir --break-system-packages \
-    'websockets==10.4'
-
-# Install Playwright from PyPI with visible output for debugging
-RUN python -m pip install --no-cache-dir --break-system-packages \
-    --index-url https://pypi.org/simple/ playwright==1.40.0 || \
-    python -m pip install --no-cache-dir --break-system-packages \
-    --index-url https://pypi.org/simple/ 'playwright>=1.0' || \
-    echo "WARNING: Playwright installation failed, will use system Chromium directly"
-
-# Install samsung-tv-ws-api from xchwarze fork (compatible with websockets==10.4)
-RUN python -m pip install --no-cache-dir --break-system-packages \
+# Install websockets and samsung-tv-ws-api from default indexes
+RUN pip install --no-cache-dir \
+    'websockets==10.4' \
     git+https://github.com/xchwarze/samsung-tv-ws-api.git
+
+# Configure pip to only use PyPI for pyppeteer (HA wheels index doesn't have it)
+RUN mkdir -p ~/.pip && echo '[global]\nindex-url = https://pypi.org/simple/\nextra-index-url = https://wheels.home-assistant.io/musllinux-index/' > ~/.pip/pip.conf
+
+# Install pyppeteer for browser automation (Python port of Puppeteer)
+RUN pip install --no-cache-dir pyppeteer
 
 # Create app and data directories
 RUN mkdir -p /app /data
