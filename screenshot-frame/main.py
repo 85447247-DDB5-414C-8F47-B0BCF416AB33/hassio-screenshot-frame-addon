@@ -138,6 +138,18 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
 
             logger.info(f'[TV UPLOAD] Upload returned id: {content_id}')
             if content_id is not None:
+                # Check if TV is in art mode - if so, force show=True so image actually displays
+                try:
+                    art_mode_status = tv.get_artmode()
+                    logger.info(f'[TV UPLOAD] TV art mode status: {art_mode_status} (type: {type(art_mode_status).__name__})')
+                    # If TV is in art mode, force show=True to make the image display
+                    # Check various possible return values: 'on', 'On', True, etc.
+                    if art_mode_status and str(art_mode_status).lower() in ('on', 'true', '1'):
+                        show = True
+                        logger.info('[TV UPLOAD] TV is in art mode, forcing show=True')
+                except Exception as e:
+                    logger.info(f'[TV UPLOAD] Could not check art mode status: {e}')
+                
                 logger.info(f'[TV UPLOAD] Attempting to select image on TV (show={show})')
                 selection_successful = False
                 try:

@@ -1,5 +1,5 @@
 name: Screenshot to Samsung Frame
-version: "0.1.17"
+version: "0.1.18"
 slug: screenshot-frame
 description: Periodically screenshots a Home Assistant dashboard and serves it for a Samsung Frame TV.
 startup: application
@@ -22,8 +22,8 @@ options:
   target_url: http://homeassistant.local:5000/
   target_auth_type: none
   target_token: ""
-  target_token_header: Authorization
-  target_token_prefix: Bearer
+  target_token_header: ""
+  target_token_prefix: ""
   target_username: ""
   target_password: ""
   target_headers: ""
@@ -36,7 +36,7 @@ options:
   use_local_tv: true
   tv_ip: ""
   tv_port: 8002
-  tv_matte: ""
+  tv_matte: "none"
   tv_show_after_upload: false
 schema:
   target_url: str                                   # URL to screenshot (HTML page or image)
