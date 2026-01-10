@@ -285,8 +285,11 @@ async def screenshot_loop():
         logger.info('[LOOP] WARNING: No TARGET_URL configured; the add-on will not fetch screenshots')
 
     loop_count = 0
+    next_cycle_time = None
+    
     while True:
         loop_count += 1
+        cycle_start = asyncio.get_event_loop().time()
         logger.info(f'\n[LOOP] ===== Cycle #{loop_count} started =====')
         try:
             if not TARGET_URL:
@@ -356,9 +359,32 @@ async def screenshot_loop():
         else:
             logger.info('[LOOP] TV upload disabled (use_local_tv=false or tv_ip not set)')
 
-        logger.info(f'[LOOP] Cycle #{loop_count} complete. Sleeping for {INTERVAL}s...')
-        logger.info(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
-        await asyncio.sleep(INTERVAL)
+        # Calculate cycle duration and next cycle time
+        cycle_end = asyncio.get_event_loop().time()
+        cycle_duration = cycle_end - cycle_start
+        
+        # Calculate when next cycle should start (fixed interval from cycle start)
+        if next_cycle_time is None:
+            # First cycle: schedule next one from now
+            next_cycle_time = cycle_start + INTERVAL
+        else:
+            # Subsequent cycles: schedule from previous target time
+            next_cycle_time += INTERVAL
+        
+        # Calculate sleep time
+        current_time = asyncio.get_event_loop().time()
+        sleep_time = next_cycle_time - current_time
+        
+        if sleep_time > 0:
+            logger.info(f'[LOOP] Cycle #{loop_count} complete in {cycle_duration:.1f}s. Sleeping {sleep_time:.1f}s until next cycle...')
+            logger.info(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
+            await asyncio.sleep(sleep_time)
+        else:
+            # We're running behind schedule
+            logger.info(f'[LOOP] WARNING: Cycle #{loop_count} took {cycle_duration:.1f}s (behind by {abs(sleep_time):.1f}s). Starting next cycle immediately...')
+            logger.info(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
+            # Reset next_cycle_time to current time to avoid cascading delays
+            next_cycle_time = current_time
 
 
 async def async_main():
