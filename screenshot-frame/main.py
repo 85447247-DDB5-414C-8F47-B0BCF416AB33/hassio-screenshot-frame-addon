@@ -131,32 +131,35 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
                     content_id = tv.upload(data, file_type=file_type.lower())
             except TypeError:
                 content_id = tv.upload(data, file_type=file_type.lower())
-            
-            # Delete old art after successful upload to avoid clutter
-            if last_id and content_id and last_id != content_id:
-                try:
-                    logger.info(f'[TV UPLOAD] Deleting previous art entry: {last_id}')
-                    tv.delete(last_id)
-                    logger.info('[TV UPLOAD] ✓ Previous art deleted')
-                except Exception as e:
-                    logger.info(f'[TV UPLOAD] Warning: Failed to delete previous art: {e}')
 
             logger.info(f'[TV UPLOAD] Upload returned id: {content_id}')
             if content_id is not None:
                 logger.info(f'[TV UPLOAD] Attempting to select image on TV (show={show})')
+                selection_successful = False
                 try:
                     # Try to select with show parameter (controls whether image is displayed)
                     tv.select_image(content_id, show=show)
                     logger.info(f'[TV UPLOAD] ✓ Selected uploaded image on TV (show={show})')
+                    selection_successful = True
                 except TypeError:
                     # If show parameter not supported, try without it
                     try:
                         tv.select_image(content_id)
                         logger.info('[TV UPLOAD] ✓ Selected uploaded image on TV (without show parameter)')
+                        selection_successful = True
                     except Exception as e:
                         logger.info(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
                 except Exception as e:
                     logger.info(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
+
+                # Delete old art only after new art is successfully selected
+                if selection_successful and last_id and last_id != content_id:
+                    try:
+                        logger.info(f'[TV UPLOAD] Deleting previous art entry: {last_id}')
+                        tv.delete(last_id)
+                        logger.info('[TV UPLOAD] ✓ Previous art deleted')
+                    except Exception as e:
+                        logger.info(f'[TV UPLOAD] Warning: Failed to delete previous art: {e}')
 
             tv.close()
             logger.info('[TV UPLOAD] TV connection closed')
