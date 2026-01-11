@@ -37,7 +37,7 @@ configuration:
     description: Zoom factor; 100 = 1x
   screenshot_wait:
     name: Screenshot wait time (seconds)
-    description: Seconds to wait after DOM load for dynamic content (0 = no wait)
+    description: Additional seconds to wait after network idle (0 = no wait, recommended)
   screenshot_skip_navigation:
     name: Skip page navigation
     description: Skip page reload after first load (for auto-refreshing pages like DakBoard)

@@ -40,7 +40,7 @@ INTERVAL = int(os.environ.get('INTERVAL_SECONDS', os.environ.get('INTERVAL', 300
 SCREENSHOT_WIDTH = int(os.environ.get('SCREENSHOT_WIDTH', '1920'))
 SCREENSHOT_HEIGHT = int(os.environ.get('SCREENSHOT_HEIGHT', '1080'))
 SCREENSHOT_ZOOM = int(os.environ.get('SCREENSHOT_ZOOM', '100'))  # percentage: 100 = 100%, 150 = 150%, etc.
-SCREENSHOT_WAIT = float(os.environ.get('SCREENSHOT_WAIT', '2.0'))  # seconds to wait after DOM load for dynamic content
+SCREENSHOT_WAIT = float(os.environ.get('SCREENSHOT_WAIT', '0.0'))  # seconds to wait after network idle (0 = no additional wait)
 SCREENSHOT_SKIP_NAVIGATION = os.environ.get('SCREENSHOT_SKIP_NAVIGATION', 'false').lower() in ('1','true','yes')  # Skip page reload, just take new screenshot
 
 # Local TV options (from add-on options.json exported by run.sh)
@@ -70,7 +70,7 @@ logger.info(f'  Target URL: {TARGET_URL if TARGET_URL else "NOT SET"}')
 logger.info(f'  Auth Type: {TARGET_AUTH_TYPE}')
 logger.info(f'  Interval: {INTERVAL}s')
 logger.info(f'  Screenshot: {SCREENSHOT_WIDTH}x{SCREENSHOT_HEIGHT} @ {SCREENSHOT_ZOOM}% zoom')
-logger.info(f'  Screenshot Wait: {SCREENSHOT_WAIT}s (after DOM load)')
+logger.info(f'  Screenshot Wait: {SCREENSHOT_WAIT}s (after network idle)')
 logger.info(f'  Screenshot Skip Navigation: {SCREENSHOT_SKIP_NAVIGATION}')
 logger.info(f'  Art Path: {ART_PATH}')
 logger.info(f'  TV Upload: {"ENABLED" if TV_IP else "DISABLED"}')
@@ -275,13 +275,13 @@ async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeo
         if headers and not skip_navigation:
             await page.setExtraHTTPHeaders(headers)
         
-        # Navigate to URL - use 'domcontentloaded' instead of 'networkidle2' for faster rendering
-        # This waits for DOM to be ready but doesn't wait for all network activity to stop
+        # Navigate to URL - use 'networkidle2' to wait for most network activity to complete
+        # This waits until there are ≤2 network connections for 500ms (ideal for dynamic content)
         if not skip_navigation:
             logger.info('[BROWSER] Navigating to URL...')
-            await page.goto(url, {'waitUntil': 'domcontentloaded', 'timeout': timeout})
+            await page.goto(url, {'waitUntil': 'networkidle2', 'timeout': timeout})
             
-            # Wait for dynamic content to load (configurable via SCREENSHOT_WAIT)
+            # Optional additional wait after network idle (configurable via SCREENSHOT_WAIT)
             if SCREENSHOT_WAIT > 0:
                 await asyncio.sleep(SCREENSHOT_WAIT)
         else:

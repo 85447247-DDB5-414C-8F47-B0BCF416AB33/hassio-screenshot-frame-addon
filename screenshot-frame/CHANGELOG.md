@@ -1,54 +1,30 @@
+## 0.1.20 (2026-01-10)
+
 ## 0.1.19 (2026-01-10)
+
+- Persistent browser instance for 10x faster screenshots (5-10s vs 90s)
+- Skip navigation option for auto-refreshing pages like DakBoard
+- Configurable screenshot_wait time for dynamic content
+- Fixed-interval scheduling for consistent cycle timing
+- Auto-detect TV art mode and force show when active
+- Updated translations to match current config options
+- Fix variable scoping issue in TV upload function
 
 ## 0.1.18 (2026-01-10)
 
+- Version bump for testing
+
 ## 0.1.17 (2026-01-10)
+
+- Configuration updates
 
 ## 0.1.16 (2026-01-10)
 
+- Minor improvements
+
 ## 0.1.15 (2026-01-10)
 
-## 0.1.14 (2026-01-10)
-
-## 0.1.13 (2026-01-10)
-
-## 0.1.12 (2026-01-10)
-
-## 0.1.11 (2026-01-10)
-
-## 0.1.10 (2026-01-10)
-
-## 0.1.9 (2026-01-10)
-
-## 0.1.7 (2026-01-10)
-
-- Auto-version bump
-
-## 0.1.6 (2026-01-10)
-
-- Auto-version bump
-
-## 0.1.5 (2026-01-10)
-
-- Auto-version bump
-
-## 0.1.4
-
-- Update
-
-## 0.1.3
-
-- Update
-
-## 0.1.2
-
-- Update
-
-## 0.1.1
-
-- Update
-
-<!-- https://developers.home-assistant.io/docs/add-ons/presentation#keeping-a-changelog -->
+- Bug fixes
 
 ## 0.1.0
 

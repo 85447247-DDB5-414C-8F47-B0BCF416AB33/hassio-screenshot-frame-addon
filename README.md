@@ -30,7 +30,7 @@ Render Home Assistant dashboards (or any URL) with pyppeteer and send screenshot
 | `screenshot_width` | Screenshot width in pixels | `1920` |
 | `screenshot_height` | Screenshot height in pixels | `1080` |
 | `screenshot_zoom` | Zoom percentage (10-500%) | `100` |
-| `screenshot_wait` | Seconds to wait after DOM load for dynamic content (0 = no wait) | `2.0` |
+| `screenshot_wait` | Additional seconds to wait after network idle (0 = no wait) | `0.0` |
 | `screenshot_skip_navigation` | Skip page reload after first load (for auto-refreshing pages like DakBoard) | `false` |
 | `interval_seconds` | Seconds between screenshot updates | `300` |
 | `http_port` | HTTP server port | `8200` |
@@ -106,7 +106,7 @@ Render Home Assistant dashboards (or any URL) with pyppeteer and send screenshot
 
 For fast refresh rates (60 seconds or less):
 
-- **`screenshot_wait`**: Lower values (0.5-1.5s) render faster but may miss slow-loading content. Higher values (2-5s) ensure content loads but take longer.
+- **`screenshot_wait`**: Default is 0 (no wait) since the browser now uses 'networkidle2' to automatically wait for network activity. Only increase if content takes extra time to render after network idle.
 - **`screenshot_skip_navigation`**: Enable this for auto-refreshing pages like DakBoard. The page loads once and subsequent screenshots just capture the already-loaded (and auto-refreshed) page. This is much faster (~1-2s per screenshot after initial load).
 - **`interval_seconds`**: With persistent browser, 60-second intervals are achievable. First screenshot takes ~60s to launch browser, subsequent ones take ~5-10s (or ~1-2s with skip_navigation enabled).
 - **DakBoard**: Simple screens render faster than complex ones with many widgets/images. Enable `screenshot_skip_navigation: true` since DakBoard auto-refreshes its own content.
