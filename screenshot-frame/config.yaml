@@ -1,5 +1,5 @@
 name: Screenshot to Samsung Frame
-version: "0.1.21"
+version: "0.1.22"
 slug: screenshot-frame
 description: Periodically screenshots a Home Assistant dashboard and serves it for a Samsung Frame TV.
 startup: application
@@ -33,6 +33,7 @@ options:
   screenshot_zoom: 100
   screenshot_wait: 0.0
   screenshot_skip_navigation: true
+  debug_logging: false
   use_local_tv: true
   tv_ip: ""
   tv_port: 8002
@@ -54,6 +55,7 @@ schema:
   screenshot_zoom: int                              # Zoom percentage (100 = 100%)
   screenshot_wait: float(0.0,)?                     # Additional seconds to wait after network idle (0 = no wait)
   screenshot_skip_navigation: bool                  # Skip page reload after first load (for auto-refreshing pages like DakBoard)
+  debug_logging: bool                               # Enable verbose debug logging (default: false)
   use_local_tv: bool                                # Enable direct upload to Samsung Frame
   tv_ip: str?                                       # TV IP address (required if use_local_tv is true)
   tv_port: int                                      # TV API port (default 8002)

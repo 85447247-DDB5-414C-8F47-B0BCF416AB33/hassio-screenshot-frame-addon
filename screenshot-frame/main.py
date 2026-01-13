@@ -43,6 +43,11 @@ SCREENSHOT_ZOOM = int(os.environ.get('SCREENSHOT_ZOOM', '100'))  # percentage: 1
 SCREENSHOT_WAIT = float(os.environ.get('SCREENSHOT_WAIT', '0.0'))  # seconds to wait after network idle (0 = no additional wait)
 SCREENSHOT_SKIP_NAVIGATION = os.environ.get('SCREENSHOT_SKIP_NAVIGATION', 'false').lower() in ('1','true','yes')  # Skip page reload, just take new screenshot
 
+# Logging
+DEBUG_LOGGING = os.environ.get('DEBUG_LOGGING', 'false').lower() in ('1','true','yes')
+if not DEBUG_LOGGING:
+    logging.getLogger().setLevel(logging.WARNING)
+
 # Local TV options (from add-on options.json exported by run.sh)
 TV_IP = os.environ.get('TV_IP') or ''
 TV_PORT = int(os.environ.get('TV_PORT', '8001'))
@@ -63,33 +68,34 @@ TARGET_HEADERS = os.environ.get('TARGET_HEADERS')  # optional JSON map of header
 # Always replace last art file (hard-coded path for persistence)
 TV_LAST_ART_FILE = '/data/last-art-id.txt'
 
-logger.info('='*60)
 logger.info('Screenshot to Samsung Frame Addon - Starting')
-logger.info('='*60)
-logger.info(f'Configuration:')
-logger.info(f'  Target URL: {TARGET_URL if TARGET_URL else "NOT SET"}')
-logger.info(f'  Auth Type: {TARGET_AUTH_TYPE}')
-logger.info(f'  Interval: {INTERVAL}s')
-logger.info(f'  Screenshot: {SCREENSHOT_WIDTH}x{SCREENSHOT_HEIGHT} @ {SCREENSHOT_ZOOM}% zoom')
-logger.info(f'  Screenshot Wait: {SCREENSHOT_WAIT}s (after network idle)')
-logger.info(f'  Screenshot Skip Navigation: {SCREENSHOT_SKIP_NAVIGATION}')
-logger.info(f'  Art Path: {ART_PATH}')
-logger.info(f'  TV Upload: {"ENABLED" if TV_IP else "DISABLED"}')
-if TV_IP:
-    logger.info(f'  TV IP: {TV_IP}:{TV_PORT}')
-    logger.info(f'  TV Matte: {TV_MATTE if TV_MATTE else "none"}')
-    logger.info(f'  TV Show After Upload: {TV_SHOW_AFTER_UPLOAD}')
-    logger.info(f'  TV Upload Timeout: {TV_UPLOAD_TIMEOUT}s')
-logger.info('='*60)
+if DEBUG_LOGGING:
+    logger.info('='*60)
+    logger.info(f'Configuration:')
+    logger.info(f'  Target URL: {TARGET_URL if TARGET_URL else "NOT SET"}')
+    logger.info(f'  Auth Type: {TARGET_AUTH_TYPE}')
+    logger.info(f'  Interval: {INTERVAL}s')
+    logger.info(f'  Screenshot: {SCREENSHOT_WIDTH}x{SCREENSHOT_HEIGHT} @ {SCREENSHOT_ZOOM}% zoom')
+    logger.info(f'  Screenshot Wait: {SCREENSHOT_WAIT}s (after network idle)')
+    logger.info(f'  Screenshot Skip Navigation: {SCREENSHOT_SKIP_NAVIGATION}')
+    logger.info(f'  Art Path: {ART_PATH}')
+    logger.info(f'  TV Upload: {"ENABLED" if TV_IP else "DISABLED"}')
+    if TV_IP:
+        logger.info(f'  TV IP: {TV_IP}:{TV_PORT}')
+        logger.info(f'  TV Matte: {TV_MATTE if TV_MATTE else "none"}')
+        logger.info(f'  TV Show After Upload: {TV_SHOW_AFTER_UPLOAD}')
+        logger.info(f'  TV Upload Timeout: {TV_UPLOAD_TIMEOUT}s')
+    logger.info(f'  Debug Logging: {DEBUG_LOGGING}')
+    logger.info('='*60)
 
 async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte: str = None, show: bool = True):
     """Upload image to Samsung TV using sync library in executor."""
-    logger.info(f'[TV UPLOAD] Starting upload to {host}:{port}')
+    logger.debug(f'[TV UPLOAD] Starting upload to {host}:{port}')
     
     try:
         from samsungtvws import SamsungTVArt
     except Exception as e:
-        logger.info(f'[TV UPLOAD] ERROR: samsungtvws library not available: {e}')
+        logger.error(f'[TV UPLOAD] ERROR: samsungtvws library not available: {e}')
         return None
 
     def _sync_upload():
@@ -99,24 +105,24 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
         # Create local copy of show parameter so we can modify it
         local_show = show
         try:
-            logger.info(f'[TV UPLOAD] Connecting to TV (token file: {token_file})')
+            logger.debug(f'[TV UPLOAD] Connecting to TV (token file: {token_file})')
             tv = SamsungTVArt(host=host, port=port, token_file=token_file)
             tv.open()
 
             supported = tv.supported()
             if not supported:
-                logger.info('[TV UPLOAD] ERROR: TV does not support art mode via this API')
+                logger.error('[TV UPLOAD] ERROR: TV does not support art mode via this API')
                 tv.close()
                 return None
 
             # read image bytes
-            logger.info(f'[TV UPLOAD] Reading image from {image_path}')
+            logger.debug(f'[TV UPLOAD] Reading image from {image_path}')
             with open(image_path, 'rb') as f:
                 data = f.read()
-            logger.info(f'[TV UPLOAD] Image size: {len(data)} bytes')
+            logger.debug(f'[TV UPLOAD] Image size: {len(data)} bytes')
 
             file_type = os.path.splitext(image_path)[1][1:].upper() or 'JPEG'
-            logger.info(f'[TV UPLOAD] Uploading image (type={file_type}, matte={matte}, show={local_show})')
+            logger.debug(f'[TV UPLOAD] Uploading image (type={file_type}, matte={matte}, show={local_show})')
             
             # Get cached ID for cleanup after upload
             last_id = None
@@ -125,12 +131,12 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
                     with open(TV_LAST_ART_FILE, 'r') as lf:
                         last_id = lf.read().strip() or None
                     if last_id:
-                        logger.info(f'[TV UPLOAD] Found cached art ID: {last_id}')
+                        logger.debug(f'[TV UPLOAD] Found cached art ID: {last_id}')
                 except Exception:
                     pass
 
             # Upload new art
-            logger.info('[TV UPLOAD] Uploading new art entry')
+            logger.debug('[TV UPLOAD] Uploading new art entry')
             content_id = None
             try:
                 if matte:
@@ -140,63 +146,63 @@ async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte:
             except TypeError:
                 content_id = tv.upload(data, file_type=file_type.lower())
 
-            logger.info(f'[TV UPLOAD] Upload returned id: {content_id}')
+            logger.debug(f'[TV UPLOAD] Upload returned id: {content_id}')
             if content_id is not None:
                 # Check if TV is in art mode - if so, force show=True so image actually displays
                 try:
                     art_mode_status = tv.get_artmode()
-                    logger.info(f'[TV UPLOAD] TV art mode status: {art_mode_status} (type: {type(art_mode_status).__name__})')
+                    logger.debug(f'[TV UPLOAD] TV art mode status: {art_mode_status} (type: {type(art_mode_status).__name__})')
                     # If TV is in art mode, force show=True to make the image display
                     # Check various possible return values: 'on', 'On', True, etc.
                     if art_mode_status and str(art_mode_status).lower() in ('on', 'true', '1'):
                         local_show = True
-                        logger.info('[TV UPLOAD] TV is in art mode, forcing show=True')
+                        logger.debug('[TV UPLOAD] TV is in art mode, forcing show=True')
                 except Exception as e:
-                    logger.info(f'[TV UPLOAD] Could not check art mode status: {e}')
+                    logger.debug(f'[TV UPLOAD] Could not check art mode status: {e}')
                 
-                logger.info(f'[TV UPLOAD] Attempting to select image on TV (show={local_show})')
+                logger.debug(f'[TV UPLOAD] Attempting to select image on TV (show={local_show})')
                 selection_successful = False
                 try:
                     # Try to select with show parameter (controls whether image is displayed)
                     tv.select_image(content_id, show=local_show)
-                    logger.info(f'[TV UPLOAD] ✓ Selected uploaded image on TV (show={local_show})')
+                    logger.debug(f'[TV UPLOAD] ✓ Selected uploaded image on TV (show={local_show})')
                     selection_successful = True
                 except TypeError:
                     # If show parameter not supported, try without it
                     try:
                         tv.select_image(content_id)
-                        logger.info('[TV UPLOAD] ✓ Selected uploaded image on TV (without show parameter)')
+                        logger.debug('[TV UPLOAD] ✓ Selected uploaded image on TV (without show parameter)')
                         selection_successful = True
                     except Exception as e:
-                        logger.info(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
+                        logger.error(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
                 except Exception as e:
-                    logger.info(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
+                    logger.error(f'[TV UPLOAD] ERROR: Failed to select uploaded image: {e}')
 
                 # Delete old art only after new art is successfully selected
                 if selection_successful and last_id and last_id != content_id:
                     try:
-                        logger.info(f'[TV UPLOAD] Deleting previous art entry: {last_id}')
+                        logger.debug(f'[TV UPLOAD] Deleting previous art entry: {last_id}')
                         tv.delete(last_id)
-                        logger.info('[TV UPLOAD] ✓ Previous art deleted')
+                        logger.debug('[TV UPLOAD] ✓ Previous art deleted')
                     except Exception as e:
-                        logger.info(f'[TV UPLOAD] Warning: Failed to delete previous art: {e}')
+                        logger.warning(f'[TV UPLOAD] Warning: Failed to delete previous art: {e}')
 
             tv.close()
-            logger.info('[TV UPLOAD] TV connection closed')
+            logger.debug('[TV UPLOAD] TV connection closed')
 
             # Persist last art id for future replace attempts
             try:
                 if content_id:
                     with open(TV_LAST_ART_FILE, 'w') as lf:
                         lf.write(str(content_id))
-                    logger.info(f'[TV UPLOAD] ✓ Cached art ID {content_id} to {TV_LAST_ART_FILE}')
+                    logger.debug(f'[TV UPLOAD] ✓ Cached art ID {content_id} to {TV_LAST_ART_FILE}')
             except Exception as e:
-                logger.info(f'[TV UPLOAD] Warning: Failed to cache art ID: {e}')
+                logger.warning(f'[TV UPLOAD] Warning: Failed to cache art ID: {e}')
 
             return content_id
             
         except Exception as e:
-            logger.info(f'[TV UPLOAD] ERROR: Exception during TV interaction: {e}')
+            logger.error(f'[TV UPLOAD] ERROR: Exception during TV interaction: {e}')
             try:
                 if tv:
                     tv.close()
@@ -231,12 +237,12 @@ async def _ensure_browser(width: int, height: int):
             # Test if browser is still alive
             await _browser.version()
         except Exception:
-            logger.info('[BROWSER] Browser connection lost, relaunching...')
+            logger.debug('[BROWSER] Browser connection lost, relaunching...')
             _browser = None
             _page = None
     
     if _browser is None:
-        logger.info('[BROWSER] Launching persistent browser instance...')
+        logger.debug('[BROWSER] Launching persistent browser instance...')
         executable_candidates = ['/usr/bin/chromium-browser', '/usr/bin/chromium']
         executable_path = None
         for cand in executable_candidates:
@@ -256,14 +262,14 @@ async def _ensure_browser(width: int, height: int):
             else:
                 _browser = await pyppeteer.launch(headless=True, args=args)
         
-        logger.info('[BROWSER] ✓ Browser launched successfully')
+        logger.debug('[BROWSER] ✓ Browser launched successfully')
         _page = None  # Force new page creation
     
     if _page is None:
-        logger.info('[BROWSER] Creating new page...')
+        logger.debug('[BROWSER] Creating new page...')
         _page = await _browser.newPage()
         await _page.setViewport({'width': width, 'height': height})
-        logger.info('[BROWSER] ✓ Page created')
+        logger.debug('[BROWSER] ✓ Page created')
     
     return _browser, _page
 
@@ -287,14 +293,14 @@ async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeo
         # Navigate to URL - use 'networkidle2' to wait for most network activity to complete
         # This waits until there are ≤2 network connections for 500ms (ideal for dynamic content)
         if not skip_navigation:
-            logger.info('[BROWSER] Navigating to URL...')
+            logger.debug('[BROWSER] Navigating to URL...')
             await page.goto(url, {'waitUntil': 'networkidle2', 'timeout': timeout})
             
             # Optional additional wait after network idle (configurable via SCREENSHOT_WAIT)
             if SCREENSHOT_WAIT > 0:
                 await asyncio.sleep(SCREENSHOT_WAIT)
         else:
-            logger.info('[BROWSER] Skipping navigation (page auto-refreshes), taking new screenshot...')
+            logger.debug('[BROWSER] Skipping navigation (page auto-refreshes), taking new screenshot...')
             # Still wait a moment for any auto-refresh content to settle
             if SCREENSHOT_WAIT > 0:
                 await asyncio.sleep(SCREENSHOT_WAIT)
@@ -304,17 +310,17 @@ async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeo
             await page.evaluate(f'() => {{ document.body.style.zoom = "{zoom}%" }}')
         
         # Take screenshot
-        logger.info('[BROWSER] Taking screenshot...')
+        logger.debug('[BROWSER] Taking screenshot...')
         screenshot = await page.screenshot({'fullPage': False})
-        logger.info('[BROWSER] ✓ Screenshot captured')
+        logger.debug('[BROWSER] ✓ Screenshot captured')
         
         return screenshot
 
 
 async def screenshot_loop():
-    logger.info('[LOOP] Screenshot loop started')
+    logger.debug('[LOOP] Screenshot loop started')
     if not TARGET_URL:
-        logger.info('[LOOP] WARNING: No TARGET_URL configured; the add-on will not fetch screenshots')
+        logger.warning('[LOOP] WARNING: No TARGET_URL configured; the add-on will not fetch screenshots')
 
     loop_count = 0
     next_cycle_time = None
@@ -322,10 +328,10 @@ async def screenshot_loop():
     while True:
         loop_count += 1
         cycle_start = asyncio.get_event_loop().time()
-        logger.info(f'\n[LOOP] ===== Cycle #{loop_count} started =====')
+        logger.debug(f'\n[LOOP] ===== Cycle #{loop_count} started =====')
         try:
             if not TARGET_URL:
-                logger.info('[LOOP] Skipping fetch; TARGET_URL not set')
+                logger.debug('[LOOP] Skipping fetch; TARGET_URL not set')
             else:
                 try:
                     # Build headers/auth dynamically so the target URL can be
@@ -339,7 +345,7 @@ async def screenshot_loop():
                             if isinstance(parsed, dict):
                                 headers.update(parsed)
                         except Exception:
-                            logger.info('Failed to parse TARGET_HEADERS; expecting JSON map')
+                            logger.warning('Failed to parse TARGET_HEADERS; expecting JSON map')
 
                     if TARGET_AUTH_TYPE == 'bearer' and TARGET_TOKEN:
                         headers[TARGET_TOKEN_HEADER] = f"{TARGET_TOKEN_PREFIX} {TARGET_TOKEN}"
@@ -347,51 +353,51 @@ async def screenshot_loop():
                         auth = BasicAuth(TARGET_USERNAME, TARGET_PASSWORD)
 
                     async with ClientSession() as session:
-                        logger.info(f'Fetching from target URL: {TARGET_URL} (auth={TARGET_AUTH_TYPE})')
+                        logger.debug(f'Fetching from target URL: {TARGET_URL} (auth={TARGET_AUTH_TYPE})')
                         async with session.get(TARGET_URL, timeout=30, headers=headers or None, auth=auth) as resp:
                             if resp.status == 200:
                                 ctype = (resp.headers.get('content-type') or '').lower()
                                 content = await resp.read()
                                 # If the target returns HTML, render it with pyppeteer
                                 if ctype.startswith('text/html') or (len(content) > 0 and content.lstrip().startswith(b'<')):
-                                    logger.info('Target returned HTML; attempting pyppeteer render')
+                                    logger.debug('Target returned HTML; attempting pyppeteer render')
                                     # Skip navigation after first load if configured (for auto-refreshing pages)
                                     skip_nav = SCREENSHOT_SKIP_NAVIGATION and loop_count > 1
                                     rendered = await render_url_with_pyppeteer(TARGET_URL, headers=headers, width=SCREENSHOT_WIDTH, height=SCREENSHOT_HEIGHT, zoom=SCREENSHOT_ZOOM, skip_navigation=skip_nav)
                                     if rendered:
                                         with open(str(ART_PATH), 'wb') as f:
                                             f.write(rendered)
-                                        logger.info(f'Saved pyppeteer-rendered image to {ART_PATH}')
+                                        logger.debug(f'Saved pyppeteer-rendered image to {ART_PATH}')
                                     else:
                                         # Fallback: save the raw response (likely HTML) for debugging
                                         with open(str(ART_PATH), 'wb') as f:
                                             f.write(content)
-                                        logger.info(f'pyppeteer not available or failed; saved raw target response to {ART_PATH}')
+                                        logger.warning(f'pyppeteer not available or failed; saved raw target response to {ART_PATH}')
                                 else:
                                     with open(str(ART_PATH), 'wb') as f:
                                         f.write(content)
-                                    logger.info(f'Saved image from target to {ART_PATH}')
+                                    logger.debug(f'Saved image from target to {ART_PATH}')
                             else:
-                                logger.info(f'Target URL returned status {resp.status}')
+                                logger.warning(f'Target URL returned status {resp.status}')
                 except Exception as e:
-                    logger.info(f'Error fetching from target URL: {e}')
+                    logger.error(f'Error fetching from target URL: {e}')
         except Exception as e:
-            logger.info(f'Fetch loop error: {e}')
+            logger.error(f'Fetch loop error: {e}')
 
         if TV_IP:
-            logger.info(f'[LOOP] TV upload enabled, uploading to {TV_IP}:{TV_PORT}')
+            logger.debug(f'[LOOP] TV upload enabled, uploading to {TV_IP}:{TV_PORT}')
             try:
                 content_id = await upload_image_to_tv_async(TV_IP, TV_PORT, str(ART_PATH), TV_MATTE, TV_SHOW_AFTER_UPLOAD)
                 if not content_id:
-                    logger.info('[LOOP] WARNING: Async upload returned no id; upload may have failed')
+                    logger.warning('[LOOP] WARNING: Async upload returned no id; upload may have failed')
                 else:
-                    logger.info(f'[LOOP] ✓ Upload complete with id: {content_id}')
+                    logger.debug(f'[LOOP] ✓ Upload complete with id: {content_id}')
             except Exception as e:
-                logger.info(f'[LOOP] ERROR: Local TV upload error: {e}')
+                logger.error(f'[LOOP] ERROR: Local TV upload error: {e}')
                 import traceback
                 traceback.print_exc()
         else:
-            logger.info('[LOOP] TV upload disabled (use_local_tv=false or tv_ip not set)')
+            logger.debug('[LOOP] TV upload disabled (use_local_tv=false or tv_ip not set)')
 
         # Calculate cycle duration and next cycle time
         cycle_end = asyncio.get_event_loop().time()
@@ -410,19 +416,19 @@ async def screenshot_loop():
         sleep_time = next_cycle_time - current_time
         
         if sleep_time > 0:
-            logger.info(f'[LOOP] Cycle #{loop_count} complete in {cycle_duration:.1f}s. Sleeping {sleep_time:.1f}s until next cycle...')
-            logger.info(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
+            logger.debug(f'[LOOP] Cycle #{loop_count} complete in {cycle_duration:.1f}s. Sleeping {sleep_time:.1f}s until next cycle...')
+            logger.debug(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
             await asyncio.sleep(sleep_time)
         else:
             # We're running behind schedule
-            logger.info(f'[LOOP] WARNING: Cycle #{loop_count} took {cycle_duration:.1f}s (behind by {abs(sleep_time):.1f}s). Starting next cycle immediately...')
-            logger.info(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
+            logger.warning(f'[LOOP] WARNING: Cycle #{loop_count} took {cycle_duration:.1f}s (behind by {abs(sleep_time):.1f}s). Starting next cycle immediately...')
+            logger.debug(f'[LOOP] ===== Cycle #{loop_count} ended =====\n')
             # Reset next_cycle_time to current time to avoid cascading delays
             next_cycle_time = current_time
 
 
 async def async_main():
-    logger.info('[STARTUP] Starting screenshot loop...')
+    logger.debug('[STARTUP] Starting screenshot loop...')
 
     loop = asyncio.get_running_loop()
     screenshot_task = loop.create_task(screenshot_loop())
@@ -441,28 +447,28 @@ async def async_main():
         if _page:
             try:
                 await _page.close()
-                logger.info('[SHUTDOWN] Closed browser page')
+                logger.debug('[SHUTDOWN] Closed browser page')
             except Exception:
                 pass
         if _browser:
             try:
                 await _browser.close()
-                logger.info('[SHUTDOWN] Closed browser instance')
+                logger.debug('[SHUTDOWN] Closed browser instance')
             except Exception:
                 pass
         
         await runner.cleanup()
-        logger.info('[SHUTDOWN] Cleanup complete')
+        logger.debug('[SHUTDOWN] Cleanup complete')
 
 
 def main():
-    logger.info('[MAIN] Starting addon...')
+    logger.debug('[MAIN] Starting addon...')
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
         logger.info('[MAIN] Received keyboard interrupt')
     except Exception as e:
-        logger.info(f'[MAIN] ERROR: Unexpected error: {e}')
+        logger.error(f'[MAIN] ERROR: Unexpected error: {e}')
         import traceback
         traceback.print_exc()
 

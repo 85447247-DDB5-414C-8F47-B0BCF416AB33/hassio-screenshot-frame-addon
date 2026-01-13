@@ -41,6 +41,9 @@ configuration:
   screenshot_skip_navigation:
     name: Skip page navigation
     description: Skip page reload after first load (for auto-refreshing pages like DakBoard)
+  debug_logging:
+    name: Debug logging
+    description: Enable verbose debug logging (shows all operations, disabled by default)
   use_local_tv:
     name: Upload to Samsung Frame
     description: Enable direct upload to the TV
