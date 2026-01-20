@@ -254,6 +254,7 @@ _last_error = None
 _mqtt_client = None
 _mqtt_connected = False
 _mqtt_lock = asyncio.Lock()
+_main_loop = None  # Store main event loop for MQTT callbacks
 
 async def _ensure_browser(width: int, height: int):
     """Ensure browser instance is running. Returns (browser, page)."""
@@ -347,14 +348,16 @@ async def render_url_with_pyppeteer(url: str, headers: dict | None = None, timeo
 
 def _on_mqtt_connect(client, userdata, flags, rc):
     """MQTT connect callback."""
-    global _mqtt_connected
+    global _mqtt_connected, _main_loop
     if rc == 0:
         logger.info('[MQTT] ✓ Connected to MQTT broker')
         _mqtt_connected = True
         # Publish discovery messages for sensors
         try:
-            loop = asyncio.get_event_loop()
-            asyncio.run_coroutine_threadsafe(_mqtt_publish_discovery(), loop)
+            if _main_loop:
+                asyncio.run_coroutine_threadsafe(_mqtt_publish_discovery(), _main_loop)
+            else:
+                logger.error('[MQTT] Main event loop not available')
         except Exception as e:
             logger.error(f'[MQTT] Failed to schedule discovery: {e}')
     else:
@@ -688,9 +691,11 @@ async def start_api_server():
 
 
 async def async_main():
+    global _main_loop
     logger.debug('[STARTUP] Starting screenshot loop...')
 
     loop = asyncio.get_running_loop()
+    _main_loop = loop  # Store for MQTT callbacks
     
     # Initialize MQTT if enabled
     await _mqtt_connect()
