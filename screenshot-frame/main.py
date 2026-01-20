@@ -14,11 +14,7 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 import pyppeteer
 
 # MQTT for Home Assistant integration
-try:
-    import paho.mqtt.client as mqtt
-    MQTT_AVAILABLE = True
-except ImportError:
-    MQTT_AVAILABLE = False
+import paho.mqtt.client as mqtt
 
 # Configure logging with timestamps
 logging.basicConfig(
@@ -52,7 +48,9 @@ SCREENSHOT_SKIP_NAVIGATION = os.environ.get('SCREENSHOT_SKIP_NAVIGATION', 'false
 
 # Logging
 DEBUG_LOGGING = os.environ.get('DEBUG_LOGGING', 'false').lower() in ('1','true','yes')
-if not DEBUG_LOGGING:
+if DEBUG_LOGGING:
+    logging.getLogger().setLevel(logging.DEBUG)
+else:
     logging.getLogger().setLevel(logging.WARNING)
 
 # Local TV options (from add-on options.json exported by run.sh)
@@ -357,8 +355,8 @@ def _on_mqtt_connect(client, userdata, flags, rc):
         try:
             loop = asyncio.get_event_loop()
             asyncio.run_coroutine_threadsafe(_mqtt_publish_discovery(), loop)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f'[MQTT] Failed to schedule discovery: {e}')
     else:
         logger.error(f'[MQTT] Connection failed with code {rc}')
         _mqtt_connected = False
@@ -376,50 +374,54 @@ async def _mqtt_publish_discovery():
     """Publish Home Assistant MQTT Discovery messages for sensors."""
     global _mqtt_client
     if not _mqtt_client or not _mqtt_connected:
+        logger.warning('[MQTT] Cannot publish discovery: client not connected')
         return
     
-    device_id = 'screenshot_frame'
-    device_info = {
-        'identifiers': ['screenshot_to_samsung_frame_addon'],
-        'name': 'Screenshot to Samsung Frame',
-        'manufacturer': 'Home Assistant Community',
-        'model': 'Screenshot Frame Add-on',
-    }
-    
-    # Discovery message for last_sync sensor
-    discovery_topic = f'{MQTT_TOPIC_BASE}/sensor/{device_id}/last_sync/config'
-    discovery_payload = {
-        'name': 'Screenshot Frame Last Sync',
-        'unique_id': f'{device_id}_last_sync',
-        'state_topic': f'screenshot_frame/last_sync',
-        'device_class': 'timestamp',
-        'device': device_info,
-    }
-    _mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
-    logger.debug(f'[MQTT] Published discovery for last_sync')
-    
-    # Discovery message for success sensor
-    discovery_topic = f'{MQTT_TOPIC_BASE}/binary_sensor/{device_id}/success/config'
-    discovery_payload = {
-        'name': 'Screenshot Frame Sync Success',
-        'unique_id': f'{device_id}_success',
-        'state_topic': f'screenshot_frame/success',
-        'device_class': 'connectivity',
-        'device': device_info,
-    }
-    _mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
-    logger.debug(f'[MQTT] Published discovery for success')
-    
-    # Discovery message for error sensor
-    discovery_topic = f'{MQTT_TOPIC_BASE}/sensor/{device_id}/error/config'
-    discovery_payload = {
-        'name': 'Screenshot Frame Last Error',
-        'unique_id': f'{device_id}_error',
-        'state_topic': f'screenshot_frame/error',
-        'device': device_info,
-    }
-    _mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
-    logger.debug(f'[MQTT] Published discovery for error')
+    try:
+        device_id = 'screenshot_frame'
+        device_info = {
+            'identifiers': ['screenshot_to_samsung_frame_addon'],
+            'name': 'Screenshot to Samsung Frame',
+            'manufacturer': 'Home Assistant Community',
+            'model': 'Screenshot Frame Add-on',
+        }
+        
+        # Discovery message for last_sync sensor
+        discovery_topic = f'{MQTT_TOPIC_BASE}/sensor/{device_id}/last_sync/config'
+        discovery_payload = {
+            'name': 'Screenshot Frame Last Sync',
+            'unique_id': f'{device_id}_last_sync',
+            'state_topic': f'screenshot_frame/last_sync',
+            'device_class': 'timestamp',
+            'device': device_info,
+        }
+        _mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
+        logger.info(f'[MQTT] Published discovery for last_sync')
+        
+        # Discovery message for success sensor
+        discovery_topic = f'{MQTT_TOPIC_BASE}/binary_sensor/{device_id}/success/config'
+        discovery_payload = {
+            'name': 'Screenshot Frame Sync Success',
+            'unique_id': f'{device_id}_success',
+            'state_topic': f'screenshot_frame/success',
+            'device_class': 'connectivity',
+            'device': device_info,
+        }
+        _mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
+        logger.info(f'[MQTT] Published discovery for success')
+        
+        # Discovery message for error sensor
+        discovery_topic = f'{MQTT_TOPIC_BASE}/sensor/{device_id}/error/config'
+        discovery_payload = {
+            'name': 'Screenshot Frame Last Error',
+            'unique_id': f'{device_id}_error',
+            'state_topic': f'screenshot_frame/error',
+            'device': device_info,
+        }
+        _mqtt_client.publish(discovery_topic, json.dumps(discovery_payload), retain=True)
+        logger.info(f'[MQTT] Published discovery for error')
+    except Exception as e:
+        logger.error(f'[MQTT] Error publishing discovery: {e}')
 
 
 async def _mqtt_update_status():
@@ -427,6 +429,7 @@ async def _mqtt_update_status():
     global _mqtt_client, _mqtt_connected, _last_sync_time, _last_sync_success, _last_error
     
     if not MQTT_ENABLED or not _mqtt_client or not _mqtt_connected:
+        logger.debug('[MQTT] Cannot update status: MQTT not enabled or not connected')
         return
     
     async with _status_lock:
@@ -434,16 +437,18 @@ async def _mqtt_update_status():
             # Publish last_sync timestamp
             if _last_sync_time:
                 _mqtt_client.publish('screenshot_frame/last_sync', _last_sync_time.isoformat(), retain=True)
+                logger.info(f'[MQTT] Published last_sync: {_last_sync_time.isoformat()}')
             
             # Publish success status as ON/OFF
             state = 'ON' if _last_sync_success else 'OFF'
             _mqtt_client.publish('screenshot_frame/success', state, retain=True)
+            logger.info(f'[MQTT] Published success: {state}')
             
             # Publish error message (empty if no error)
             error_msg = _last_error if _last_error else 'None'
             _mqtt_client.publish('screenshot_frame/error', error_msg, retain=True)
+            logger.info(f'[MQTT] Published error: {error_msg}')
             
-            logger.debug(f'[MQTT] Published status update (success={_last_sync_success})')
         except Exception as e:
             logger.error(f'[MQTT] Error publishing status: {e}')
 
@@ -452,28 +457,36 @@ async def _mqtt_connect():
     """Initialize and connect MQTT client."""
     global _mqtt_client, _mqtt_connected
     
-    if not MQTT_ENABLED or not MQTT_AVAILABLE:
-        logger.debug('[MQTT] MQTT disabled or paho-mqtt not available')
+    if not MQTT_ENABLED:
+        logger.info('[MQTT] MQTT integration is disabled')
         return
     
     try:
+        logger.info(f'[MQTT] Initializing MQTT client...')
         _mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id='screenshot_frame_addon')
         _mqtt_client.on_connect = _on_mqtt_connect
         _mqtt_client.on_disconnect = _on_mqtt_disconnect
         
         if MQTT_USERNAME and MQTT_PASSWORD:
             _mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-            logger.debug(f'[MQTT] Using authentication')
+            logger.info(f'[MQTT] Using authentication (username: {MQTT_USERNAME})')
         
-        logger.debug(f'[MQTT] Connecting to {MQTT_BROKER}:{MQTT_PORT}...')
+        logger.info(f'[MQTT] Connecting to {MQTT_BROKER}:{MQTT_PORT}...')
         _mqtt_client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
         _mqtt_client.loop_start()
         
         # Give it a moment to connect
         await asyncio.sleep(2)
         
+        if _mqtt_connected:
+            logger.info('[MQTT] ✓ MQTT initialization complete')
+        else:
+            logger.warning('[MQTT] MQTT client started but not yet connected')
+        
     except Exception as e:
         logger.error(f'[MQTT] Failed to initialize MQTT: {e}')
+        import traceback
+        traceback.print_exc()
         _mqtt_client = None
 
 
