@@ -105,6 +105,13 @@ if DEBUG_LOGGING:
     if MQTT_ENABLED:
         logger.info(f'  MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}')
         logger.info(f'  MQTT Topic Base: {MQTT_TOPIC_BASE}')
+    logger.info('='*60)
+
+async def upload_image_to_tv_async(host: str, port: int, image_path: str, matte: str = None, show: bool = True):
+    """Upload image to Samsung TV using sync library in executor."""
+    logger.debug(f'[TV UPLOAD] Starting upload to {host}:{port}')
+    
+    try:
         from samsungtvws import SamsungTVArt
     except Exception as e:
         logger.error(f'[TV UPLOAD] ERROR: samsungtvws library not available: {e}')
