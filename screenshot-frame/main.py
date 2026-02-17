@@ -855,12 +855,383 @@ async def handle_cleanup(request):
         }, status=500)
 
 
+async def delete_all_art_async(host: str, port: int):
+    """Delete ALL art from TV (dangerous operation)."""
+    logger.warning('[TV DELETE-ALL] Starting deletion of ALL art from TV')
+    
+    try:
+        from samsungtvws import SamsungTVArt
+    except Exception as e:
+        logger.error(f'[TV DELETE-ALL] ERROR: samsungtvws library not available: {e}')
+        return {'success': False, 'deleted': 0, 'failed': 0, 'message': f'Library error: {e}'}
+
+    def _sync_delete_all():
+        """Synchronous delete-all function to run in executor."""
+        token_file = '/data/tv-token.txt'
+        tv = None
+        deleted_count = 0
+        failed_count = 0
+        try:
+            logger.debug(f'[TV DELETE-ALL] Connecting to TV')
+            tv = SamsungTVArt(host=host, port=port, token_file=token_file)
+            tv.open()
+
+            supported = tv.supported()
+            if not supported:
+                logger.error('[TV DELETE-ALL] TV does not support art mode via this API')
+                tv.close()
+                return {'success': False, 'deleted': 0, 'failed': 0, 'message': 'TV does not support art mode'}
+
+            # Get list of all art
+            try:
+                art_list = tv.get_artlist()
+                logger.info(f'[TV DELETE-ALL] Found {len(art_list)} total art entries on TV')
+                
+                for art in art_list:
+                    content_id = art.get('content_id')
+                    if content_id:
+                        try:
+                            logger.debug(f'[TV DELETE-ALL] Deleting: {content_id}')
+                            tv.delete(content_id)
+                            deleted_count += 1
+                        except Exception as e:
+                            logger.warning(f'[TV DELETE-ALL] Failed to delete {content_id}: {e}')
+                            failed_count += 1
+                
+            except Exception as e:
+                logger.error(f'[TV DELETE-ALL] Error retrieving art list: {e}')
+                tv.close()
+                return {'success': False, 'deleted': 0, 'failed': 0, 'message': f'Error getting art list: {e}'}
+
+            tv.close()
+            logger.info(f'[TV DELETE-ALL] Deletion complete: {deleted_count} deleted, {failed_count} failed')
+            
+            # Clear the cached ID file
+            try:
+                if os.path.exists(TV_LAST_ART_FILE):
+                    os.remove(TV_LAST_ART_FILE)
+                if os.path.exists(TV_DELETION_RETRY_FILE):
+                    os.remove(TV_DELETION_RETRY_FILE)
+                logger.debug('[TV DELETE-ALL] Cleared cached art ID files')
+            except Exception:
+                pass
+            
+            return {
+                'success': True,
+                'deleted': deleted_count,
+                'failed': failed_count,
+                'message': f'Successfully deleted {deleted_count} art entries' + (f' ({failed_count} failed)' if failed_count > 0 else '')
+            }
+            
+        except Exception as e:
+            logger.error(f'[TV DELETE-ALL] ERROR: Exception during delete-all: {e}')
+            try:
+                if tv:
+                    tv.close()
+            except Exception:
+                pass
+            return {'success': False, 'deleted': 0, 'failed': 0, 'message': f'Error: {e}'}
+
+    # Run sync delete-all in thread executor with timeout
+    loop = asyncio.get_event_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, _sync_delete_all),
+            timeout=TV_UPLOAD_TIMEOUT * 5  # Give more time for bulk delete
+        )
+    except asyncio.TimeoutError:
+        logger.error(f'[TV DELETE-ALL] ERROR: Delete-all timed out after {TV_UPLOAD_TIMEOUT * 5}s')
+        return {'success': False, 'deleted': 0, 'failed': 0, 'message': f'Operation timed out after {TV_UPLOAD_TIMEOUT * 5}s'}
+
+
+async def handle_delete_all(request):
+    """API endpoint: POST /delete-all - Delete ALL art from TV (dangerous!)."""
+    if not TV_IP:
+        return web.json_response({
+            'success': False,
+            'message': 'TV upload not configured (TV_IP not set)'
+        }, status=400)
+    
+    try:
+        logger.warning('[API] DELETE-ALL requested - removing all art from TV')
+        result = await delete_all_art_async(TV_IP, TV_PORT)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f'[API] Error during delete-all: {e}')
+        return web.json_response({
+            'success': False,
+            'deleted': 0,
+            'failed': 0,
+            'message': f'Error: {e}'
+        }, status=500)
+
+
+async def handle_dashboard(request):
+    """API endpoint: GET / - Control panel dashboard."""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Screenshot Frame Control</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            * { box-sizing: border-box; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                background: #f5f5f5;
+                margin: 0;
+                padding: 20px;
+            }
+            .container {
+                max-width: 600px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                padding: 30px;
+            }
+            h1 {
+                margin-top: 0;
+                color: #333;
+                text-align: center;
+            }
+            .status-section {
+                background: #f9f9f9;
+                border-left: 4px solid #2196F3;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 4px;
+            }
+            .status-section h3 {
+                margin-top: 0;
+                color: #1976D2;
+            }
+            .status-item {
+                margin: 8px 0;
+                font-size: 14px;
+            }
+            .status-item strong {
+                display: inline-block;
+                width: 140px;
+                color: #666;
+            }
+            .buttons {
+                margin-top: 30px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            button {
+                padding: 12px 20px;
+                font-size: 16px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                font-weight: 600;
+            }
+            .btn-primary {
+                background: #2196F3;
+                color: white;
+            }
+            .btn-primary:hover {
+                background: #1976D2;
+                box-shadow: 0 2px 8px rgba(33,150,243,0.3);
+            }
+            .btn-danger {
+                background: #f44336;
+                color: white;
+            }
+            .btn-danger:hover {
+                background: #d32f2f;
+                box-shadow: 0 2px 8px rgba(244,67,54,0.3);
+            }
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .result {
+                margin-top: 20px;
+                padding: 15px;
+                border-radius: 4px;
+                display: none;
+            }
+            .result.success {
+                background: #c8e6c9;
+                color: #2e7d32;
+                border-left: 4px solid #4caf50;
+                display: block;
+            }
+            .result.error {
+                background: #ffcdd2;
+                color: #c62828;
+                border-left: 4px solid #f44336;
+                display: block;
+            }
+            .result.info {
+                background: #bbdefb;
+                color: #1565c0;
+                border-left: 4px solid #2196f3;
+                display: block;
+            }
+            .spinner {
+                display: inline-block;
+                width: 16px;
+                height: 16px;
+                border: 3px solid rgba(255,255,255,0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+                margin-right: 8px;
+                vertical-align: middle;
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            .warning {
+                background: #fff3cd;
+                color: #856404;
+                padding: 15px;
+                border-radius: 4px;
+                margin-bottom: 20px;
+                border-left: 4px solid #ffc107;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🖼️ Screenshot Frame Control</h1>
+            
+            <div class="warning">
+                <strong>⚠️ Warning:</strong> The "Delete All Art" button will permanently remove ALL images from your TV. This cannot be undone!
+            </div>
+
+            <div class="status-section">
+                <h3>Status</h3>
+                <div class="status-item">
+                    <strong>Last Sync:</strong>
+                    <span id="last-sync">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <strong>Success:</strong>
+                    <span id="success-status">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <strong>Error:</strong>
+                    <span id="error-status">None</span>
+                </div>
+            </div>
+
+            <div class="buttons">
+                <button class="btn-primary" onclick="refreshStatus()">🔄 Refresh Status</button>
+                <button class="btn-primary" onclick="cleanup()">🧹 Cleanup Stale Images</button>
+                <button class="btn-danger" onclick="deleteAll()">🗑️ Delete All Art</button>
+            </div>
+
+            <div id="result" class="result"></div>
+        </div>
+
+        <script>
+            async function fetchStatus() {
+                try {
+                    const response = await fetch('/status');
+                    return await response.json();
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            async function refreshStatus() {
+                const status = await fetchStatus();
+                if (!status) {
+                    showResult('Failed to fetch status', 'error');
+                    return;
+                }
+                
+                document.getElementById('last-sync').textContent = status.last_sync || 'Never';
+                document.getElementById('success-status').textContent = status.success ? '✅ Yes' : '❌ No';
+                document.getElementById('error-status').textContent = status.error || 'None';
+            }
+
+            async function cleanup() {
+                const btn = event.target;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span>Cleaning up...';
+                
+                try {
+                    const response = await fetch('/cleanup', { method: 'POST' });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showResult(result.message, 'success');
+                    } else {
+                        showResult(result.message || 'Cleanup failed', 'error');
+                    }
+                } catch (e) {
+                    showResult('Error: ' + e.message, 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '🧹 Cleanup Stale Images';
+                    await refreshStatus();
+                }
+            }
+
+            async function deleteAll() {
+                if (!confirm('⚠️ This will DELETE ALL images from your TV. Are you sure?')) {
+                    return;
+                }
+                if (!confirm('This action cannot be undone. Really delete everything?')) {
+                    return;
+                }
+                
+                const btn = event.target;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span>Deleting all art...';
+                
+                try {
+                    const response = await fetch('/delete-all', { method: 'POST' });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showResult(
+                            `✅ ${result.message}<br/>Deleted: ${result.deleted} | Failed: ${result.failed}`,
+                            'success'
+                        );
+                    } else {
+                        showResult(result.message || 'Delete-all failed', 'error');
+                    }
+                } catch (e) {
+                    showResult('Error: ' + e.message, 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '🗑️ Delete All Art';
+                    await refreshStatus();
+                }
+            }
+
+            function showResult(message, type) {
+                const result = document.getElementById('result');
+                result.className = 'result ' + type;
+                result.innerHTML = message;
+            }
+
+            // Load status on page load
+            refreshStatus();
+        </script>
+    </body>
+    </html>
+    """
+    return web.Response(text=html, content_type='text/html')
+
+
 async def start_api_server():
     """Start the aiohttp web server for status/screenshot endpoints."""
     app = web.Application()
+    app.router.add_get('/', handle_dashboard)
     app.router.add_get('/status', handle_status)
     app.router.add_get('/screenshot', handle_screenshot)
     app.router.add_post('/cleanup', handle_cleanup)
+    app.router.add_post('/delete-all', handle_delete_all)
     
     runner = web.AppRunner(app)
     await runner.setup()
@@ -870,9 +1241,11 @@ async def start_api_server():
     await site.start()
     
     logger.info(f'[API] Web server started on port {api_port}')
+    logger.info(f'[API]   GET http://localhost:{api_port}/ - Control dashboard')
     logger.info(f'[API]   GET http://localhost:{api_port}/status - Sync status (JSON)')
     logger.info(f'[API]   GET http://localhost:{api_port}/screenshot - Current screenshot image')
     logger.info(f'[API]   POST http://localhost:{api_port}/cleanup - Manually cleanup stale images from TV')
+    logger.info(f'[API]   POST http://localhost:{api_port}/delete-all - Delete ALL art from TV')
     
     return runner
 
